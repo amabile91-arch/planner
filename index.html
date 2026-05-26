@@ -81,7 +81,7 @@ const StableInput = (({ value, onChange, onSubmit, placeholder, autoFocus, style
     onChange={e => onChange(e.target.value)}
     onKeyDown={e => { if(e.key==="Enter"){ e.preventDefault(); onSubmit(); } }}
     placeholder={placeholder}
-    style={{ flex:1, border:"none", outline:"none", fontSize:14, padding:"13px 0", color:"#0F172A", background:"transparent", ...style }}
+    style={{ flex:1, border:"none", outline:"none", fontSize:16, padding:"11px 0", color:"#0F172A", background:"transparent", ...style }}
   />
 ));
 
@@ -568,7 +568,7 @@ function App() {
             <div style={{width:36,height:4,background:"#E2E8F0",borderRadius:2,margin:"0 auto 16px"}}/>
             <div style={{fontSize:15,fontWeight:800,color:"#0F172A",marginBottom:14}}>루틴 추가</div>
             <input autoFocus value={newRoutineTitle} onChange={e=>setNewRoutineTitle(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addRoutine()} placeholder="루틴 이름..."
-              style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:12,padding:"12px 14px",fontSize:14,outline:"none",background:"#F8FAFF",color:"#0F172A",marginBottom:14}}/>
+              style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:12,padding:"12px 14px",fontSize:16,outline:"none",background:"#F8FAFF",color:"#0F172A",marginBottom:14}}/>
             <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:20}}>
               {R_EMOJIS.map(em=>(
                 <button key={em} onClick={()=>setNewRoutineEmoji(em)}
@@ -590,7 +590,7 @@ function App() {
             <div style={{width:36,height:4,background:"#E2E8F0",borderRadius:2,margin:"0 auto 16px"}}/>
             <div style={{fontSize:15,fontWeight:800,color:"#0F172A",marginBottom:14}}>루틴 편집</div>
             <input value={editRoutine.title} onChange={e=>setEditRoutine(r=>({...r,title:e.target.value}))}
-              style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:12,padding:"12px 14px",fontSize:14,outline:"none",background:"#F8FAFF",color:"#0F172A",marginBottom:14}}/>
+              style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:12,padding:"12px 14px",fontSize:16,outline:"none",background:"#F8FAFF",color:"#0F172A",marginBottom:14}}/>
             <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:20}}>
               {R_EMOJIS.map(em=>(
                 <button key={em} onClick={()=>setEditRoutine(r=>({...r,emoji:em}))}
