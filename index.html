@@ -22,7 +22,7 @@
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone@7.23.3/babel.min.js"></script>
   <script type="text/babel">
-const { useState, useEffect, useRef, memo } = React;
+const { useState, useEffect, useRef } = React;
 
 
 
@@ -73,7 +73,7 @@ const css = `
 
 // ── 외부 컴포넌트들 (키보드 안 닫히게) ─────────────────
 
-const StableInput = memo(({ value, onChange, onSubmit, placeholder, autoFocus, style }) => (
+const StableInput = (({ value, onChange, onSubmit, placeholder, autoFocus, style }) => (
   <input
     key="stable"
     autoFocus={autoFocus}
@@ -85,7 +85,7 @@ const StableInput = memo(({ value, onChange, onSubmit, placeholder, autoFocus, s
   />
 ));
 
-const WeekHeader = memo(({ weekDays, selectedDate, setSelectedDate, todayStr, selDateLabel, isToday }) => (
+const WeekHeader = (({ weekDays, selectedDate, setSelectedDate, todayStr, selDateLabel, isToday }) => (
   <div style={{background:"#fff",borderBottom:"1px solid #E8EEFF",flexShrink:0}}>
     <div style={{padding:"10px 16px 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
       <div>
@@ -114,7 +114,7 @@ const WeekHeader = memo(({ weekDays, selectedDate, setSelectedDate, todayStr, se
   </div>
 ));
 
-const HomeTab = memo(({ tasks, newTaskTitle, setNewTaskTitle, addTask, toggleDone, toggleTop3, deleteTask, doneCount, top3Tasks }) => (
+const HomeTab = (({ tasks, newTaskTitle, setNewTaskTitle, addTask, toggleDone, toggleTop3, deleteTask, doneCount, top3Tasks }) => (
   <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
     <div style={{padding:"12px 16px 0"}}>
       <div style={{background:"#fff",border:"1.5px solid #E2E8F0",borderRadius:14,padding:"0 14px",display:"flex",alignItems:"center",gap:10,boxShadow:"0 1px 4px rgba(0,0,0,.04)"}}>
@@ -171,7 +171,7 @@ const HomeTab = memo(({ tasks, newTaskTitle, setNewTaskTitle, addTask, toggleDon
   </div>
 ));
 
-const TimelineTab = memo(({ blocks, tasks, selectedDate, isToday, nowH, setTapHour, setEditBlock }) => {
+const TimelineTab = (({ blocks, tasks, selectedDate, isToday, nowH, setTapHour, setEditBlock }) => {
   const timelineRef = useRef(null);
   useEffect(()=>{
     if(!timelineRef.current||!isToday) return;
@@ -247,7 +247,7 @@ const TimelineTab = memo(({ blocks, tasks, selectedDate, isToday, nowH, setTapHo
   );
 });
 
-const RoutineTab = memo(({ routines, todayStr, last30, setShowAddRoutine, setEditRoutine, onTap, onLongPress, onTouchStart, onTouchEnd }) => {
+const RoutineTab = (({ routines, todayStr, last30, setShowAddRoutine, setEditRoutine, onTap, onLongPress, onTouchStart, onTouchEnd }) => {
   const getStreak=(logs={})=>{let s=0;const d=new Date();while(true){const k=d.toISOString().slice(0,10);if((logs[k]||0)>0){s++;d.setDate(d.getDate()-1);}else break;}return s;};
 
   return (
@@ -609,7 +609,7 @@ function App() {
     </div>
   );
 }
-
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
