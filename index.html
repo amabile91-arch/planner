@@ -20,7 +20,601 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone@7.23.3/babel.min.js"></script>
-  <script type="text/babel" src="app.jsx"></script>
+  <script type="text/babel">
+const { useState, useEffect, useRef, memo } = React;
+
+
+
+// ── 상수 ──────────────────────────────────────────────
+const HOUR_H = 60;
+const START_H = 6;
+const END_H = 23;
+const HOURS = Array.from({ length: END_H - START_H }, (_, i) => i + START_H);
+const DAYS = ["일","월","화","수","목","금","토"];
+const R_EMOJIS = ["🏃","💊","📚","💧","🧘","🍎","✍️","🎵","🌿","💪","🛏️","☀️","🧹","🐾","🎨"];
+
+const BLOCK_COLORS = [
+  { bg:"#EEF2FF", border:"#818CF8", text:"#3730A3", accent:"#6366F1" },
+  { bg:"#EFF6FF", border:"#60A5FA", text:"#1D4ED8", accent:"#3B82F6" },
+  { bg:"#F0FDF4", border:"#4ADE80", text:"#15803D", accent:"#22C55E" },
+  { bg:"#FFF7ED", border:"#FB923C", text:"#C2410C", accent:"#F97316" },
+  { bg:"#FDF4FF", border:"#C084FC", text:"#7E22CE", accent:"#A855F7" },
+];
+
+// 진행도별 색상
+const PROGRESS_COLORS = ["#DBEAFE","#93C5FD","#3B82F6","#1D4ED8"];
+
+const fmtH  = (h) => { const hh=Math.floor(h); return (hh<10?"0":"")+hh+":00"; };
+const fmtTime=(h) => { const hh=Math.floor(h),mm=Math.round((h-hh)*60); return `${String(hh).padStart(2,"0")}:${String(mm).padStart(2,"0")}`; };
+const todayKey = () => new Date().toISOString().slice(0,10);
+const load=(k,fb)=>{ try{const v=localStorage.getItem(k);return v?JSON.parse(v):fb;}catch{return fb;} };
+const save=(k,v)=>{ try{localStorage.setItem(k,JSON.stringify(v));}catch{} };
+const getLast30Days=()=>{ const d=[];for(let i=29;i>=0;i--){const x=new Date();x.setDate(x.getDate()-i);d.push(x.toISOString().slice(0,10));}return d; };
+const getWeekDays=(base)=>{ const d=new Date(base),day=d.getDay(),sun=new Date(d);sun.setDate(d.getDate()-day);return Array.from({length:7},(_,i)=>{const x=new Date(sun);x.setDate(sun.getDate()+i);return x;}); };
+
+const css = `
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  ::-webkit-scrollbar{display:none;}
+  body{margin:0;background:#F8FAFF;}
+  input,select,button,textarea{font-family:'Noto Sans KR',sans-serif;}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  .fade{animation:fadeUp .18s ease;}
+  @keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.2;transform:scale(1.8)}}
+  .pulse{animation:pulse 2s infinite;}
+  @keyframes slideUp{from{transform:translateY(100%);opacity:0}to{transform:translateY(0);opacity:1}}
+  .modal{animation:slideUp .24s cubic-bezier(.32,.72,0,1);}
+  .task-row:active{background:#F0F4FF !important;}
+  .block-card:active{opacity:.7;}
+  .prog-dot{transition:background .2s,transform .1s;user-select:none;-webkit-user-select:none;}
+  .prog-dot:active{transform:scale(.9);}
+`;
+
+// ── 외부 컴포넌트들 (키보드 안 닫히게) ─────────────────
+
+const StableInput = memo(({ value, onChange, onSubmit, placeholder, autoFocus, style }) => (
+  <input
+    key="stable"
+    autoFocus={autoFocus}
+    value={value}
+    onChange={e => onChange(e.target.value)}
+    onKeyDown={e => { if(e.key==="Enter"){ e.preventDefault(); onSubmit(); } }}
+    placeholder={placeholder}
+    style={{ flex:1, border:"none", outline:"none", fontSize:14, padding:"13px 0", color:"#0F172A", background:"transparent", ...style }}
+  />
+));
+
+const WeekHeader = memo(({ weekDays, selectedDate, setSelectedDate, todayStr, selDateLabel, isToday }) => (
+  <div style={{background:"#fff",borderBottom:"1px solid #E8EEFF",flexShrink:0}}>
+    <div style={{padding:"10px 16px 0",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+      <div>
+        <div style={{fontSize:10,color:"#94A3B8",letterSpacing:2,textTransform:"uppercase",fontFamily:"'DM Mono',monospace"}}>TIMEBOX</div>
+        <div style={{fontSize:18,fontWeight:800,color:"#0F172A",marginTop:1,display:"flex",alignItems:"center",gap:8}}>
+          {isToday?"오늘, ":""}{selDateLabel}
+          {isToday&&<span style={{fontSize:11,background:"#3B82F6",color:"#fff",padding:"2px 9px",borderRadius:20,fontWeight:700}}>TODAY</span>}
+        </div>
+      </div>
+    </div>
+    <div style={{display:"flex",padding:"10px 8px 8px",gap:2}}>
+      {weekDays.map((d,i)=>{
+        const key=d.toISOString().slice(0,10);
+        const isSel=key===selectedDate, isT=key===todayStr;
+        const isSun=i===0, isSat=i===6;
+        return (
+          <button key={key} onClick={()=>setSelectedDate(key)}
+            style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",padding:"6px 2px",borderRadius:14,border:"none",background:isSel?"#3B82F6":"transparent",cursor:"pointer"}}>
+            <span style={{fontSize:10,fontWeight:600,color:isSel?"rgba(255,255,255,.8)":isSun?"#EF4444":isSat?"#3B82F6":"#94A3B8"}}>{DAYS[i]}</span>
+            <span style={{fontSize:16,fontWeight:800,color:isSel?"#fff":isT?"#3B82F6":"#0F172A",marginTop:2}}>{d.getDate()}</span>
+            <div style={{width:4,height:4,borderRadius:"50%",background:isT&&!isSel?"#3B82F6":"transparent",marginTop:2}}/>
+          </button>
+        );
+      })}
+    </div>
+  </div>
+));
+
+const HomeTab = memo(({ tasks, newTaskTitle, setNewTaskTitle, addTask, toggleDone, toggleTop3, deleteTask, doneCount, top3Tasks }) => (
+  <div style={{flex:1,overflowY:"auto",WebkitOverflowScrolling:"touch"}}>
+    <div style={{padding:"12px 16px 0"}}>
+      <div style={{background:"#fff",border:"1.5px solid #E2E8F0",borderRadius:14,padding:"0 14px",display:"flex",alignItems:"center",gap:10,boxShadow:"0 1px 4px rgba(0,0,0,.04)"}}>
+        <span style={{color:"#3B82F6",fontSize:18,fontWeight:700}}>+</span>
+        <StableInput
+          value={newTaskTitle}
+          onChange={setNewTaskTitle}
+          onSubmit={addTask}
+          placeholder="할일 제목을 입력하고 Enter를 누르세요..."
+        />
+      </div>
+    </div>
+
+    <div style={{padding:"14px 16px 6px",display:"flex",alignItems:"center",gap:10}}>
+      <span style={{fontSize:13,fontWeight:700,color:"#0F172A"}}>할일 목록</span>
+      <div style={{display:"flex",alignItems:"center",gap:6,background:doneCount===tasks.length&&tasks.length>0?"#DCFCE7":"#EFF6FF",borderRadius:20,padding:"2px 8px"}}>
+        <div style={{width:14,height:14,borderRadius:"50%",border:"2px solid "+(doneCount===tasks.length&&tasks.length>0?"#22C55E":"#3B82F6"),display:"flex",alignItems:"center",justifyContent:"center"}}>
+          {doneCount===tasks.length&&tasks.length>0&&<span style={{fontSize:8,color:"#22C55E",fontWeight:900}}>✓</span>}
+        </div>
+        <span style={{fontSize:11,fontWeight:700,color:doneCount===tasks.length&&tasks.length>0?"#15803D":"#1D4ED8"}}>{doneCount}/{tasks.length}</span>
+      </div>
+      {tasks.length>0&&<div style={{flex:1,height:4,background:"#E2E8F0",borderRadius:4,overflow:"hidden"}}>
+        <div style={{width:(doneCount/tasks.length*100)+"%",height:"100%",background:"linear-gradient(90deg,#3B82F6,#6366F1)",borderRadius:4,transition:"width .3s"}}/>
+      </div>}
+      <span style={{fontSize:11,color:"#94A3B8",fontWeight:600}}>⭐ {top3Tasks.length}/3</span>
+    </div>
+
+    <div style={{padding:"0 16px 100px"}}>
+      {tasks.length===0&&(
+        <div style={{textAlign:"center",padding:"40px 0",color:"#CBD5E1"}}>
+          <div style={{fontSize:32,marginBottom:8}}>📋</div>
+          <div style={{fontSize:14,fontWeight:600}}>할일을 추가해보세요!</div>
+        </div>
+      )}
+      {tasks.map(task=>{
+        const c=BLOCK_COLORS[task.colorIdx||0];
+        return (
+          <div key={task.id} className="task-row"
+            style={{display:"flex",alignItems:"center",gap:10,padding:"12px 0",borderBottom:"1px solid #F1F5F9"}}>
+            <button onClick={()=>toggleDone(task.id)}
+              style={{width:24,height:24,borderRadius:"50%",border:"2px solid "+(task.done?"#3B82F6":"#CBD5E1"),background:task.done?"#3B82F6":"#fff",display:"flex",alignItems:"center",justifyContent:"center",cursor:"pointer",flexShrink:0,padding:0,transition:"all .15s"}}>
+              {task.done&&<span style={{fontSize:11,color:"#fff",fontWeight:900}}>✓</span>}
+            </button>
+            <div style={{width:8,height:8,borderRadius:"50%",background:c.accent,flexShrink:0}}/>
+            <span style={{flex:1,fontSize:14,fontWeight:600,color:task.done?"#94A3B8":"#0F172A",textDecoration:task.done?"line-through":"none"}}>{task.title}</span>
+            <button onClick={()=>toggleTop3(task.id)}
+              style={{background:"none",border:"none",fontSize:17,cursor:"pointer",padding:"2px 4px",opacity:task.top3?1:.2,color:"#F59E0B",transition:"opacity .15s"}}>⭐</button>
+            <button onClick={()=>deleteTask(task.id)}
+              style={{background:"none",border:"none",color:"#CBD5E1",cursor:"pointer",padding:"2px 4px",fontSize:18,lineHeight:1}}>⋮</button>
+          </div>
+        );
+      })}
+    </div>
+  </div>
+));
+
+const TimelineTab = memo(({ blocks, tasks, selectedDate, isToday, nowH, setTapHour, setEditBlock }) => {
+  const timelineRef = useRef(null);
+  useEffect(()=>{
+    if(!timelineRef.current||!isToday) return;
+    setTimeout(()=>timelineRef.current?.scrollTo({top:Math.max(0,(nowH-START_H)*HOUR_H-100),behavior:"smooth"}),200);
+  },[]);
+
+  const dayBlocks    = blocks.filter(b=>b.date===selectedDate);
+  const planBlocks   = dayBlocks.filter(b=>b.type==="plan");
+  const actualBlocks = dayBlocks.filter(b=>b.type==="actual");
+
+  const renderBlocks = (list) => list.map(b=>{
+    const c=BLOCK_COLORS[b.colorIdx||0];
+    const top=(b.startH-START_H)*HOUR_H;
+    const height=Math.max((b.endH-b.startH)*HOUR_H,28);
+    return (
+      <div key={b.id} className="block-card" onClick={()=>setEditBlock(b)}
+        style={{position:"absolute",top,left:2,right:2,height,background:c.bg,border:"1.5px solid "+c.border,borderRadius:10,padding:"5px 8px",cursor:"pointer",overflow:"hidden",zIndex:10,transition:"opacity .12s"}}>
+        <div style={{fontSize:11,fontWeight:700,color:c.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{b.title}</div>
+        <div style={{fontSize:10,color:c.accent,fontFamily:"'DM Mono',monospace",marginTop:1}}>{fmtTime(b.startH)}–{fmtTime(b.endH)}</div>
+        <div style={{position:"absolute",bottom:4,left:8,right:8,height:3,background:c.border,borderRadius:2,opacity:.6}}/>
+      </div>
+    );
+  });
+
+  return (
+    <div ref={timelineRef} style={{flex:1,overflowY:"auto",overflowX:"hidden",WebkitOverflowScrolling:"touch"}}>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 44px 1fr",paddingBottom:40}}>
+        {/* sticky 헤더 */}
+        <div style={{position:"sticky",top:0,zIndex:50,gridColumn:"1/-1",display:"grid",gridTemplateColumns:"1fr 44px 1fr",background:"#fff",borderBottom:"1px solid #E2E8F0"}}>
+          <div style={{padding:"8px",textAlign:"center",background:"#EEF2FF",borderRadius:"8px 0 0 8px",margin:"6px 0 6px 8px"}}>
+            <span style={{fontSize:12,fontWeight:700,color:"#4338CA"}}>📅 계획</span>
+          </div>
+          <div/>
+          <div style={{padding:"8px",textAlign:"center",background:"#ECFDF5",borderRadius:"0 8px 8px 0",margin:"6px 8px 6px 0"}}>
+            <span style={{fontSize:12,fontWeight:700,color:"#065F46"}}>🕐 실제</span>
+          </div>
+        </div>
+
+        {/* 왼쪽 계획 */}
+        <div style={{position:"relative",minHeight:HOURS.length*HOUR_H}}>
+          {HOURS.map(h=>(
+            <div key={h} onClick={()=>setTapHour({hour:h,type:"plan"})}
+              style={{height:HOUR_H,borderBottom:"1px dashed #E2E8F0",cursor:"pointer"}}/>
+          ))}
+          {renderBlocks(planBlocks)}
+        </div>
+
+        {/* 시간축 */}
+        <div style={{position:"relative",minHeight:HOURS.length*HOUR_H}}>
+          {HOURS.map(h=>(
+            <div key={h} style={{height:HOUR_H,borderBottom:"1px solid #E2E8F0",display:"flex",alignItems:"flex-start",justifyContent:"center",paddingTop:4}}>
+              <span style={{fontSize:9,color:"#94A3B8",fontFamily:"'DM Mono',monospace"}}>{fmtH(h)}</span>
+            </div>
+          ))}
+          {isToday&&nowH>=START_H&&nowH<=END_H&&(
+            <div style={{position:"absolute",top:(nowH-START_H)*HOUR_H,left:0,right:0,display:"flex",alignItems:"center",zIndex:30,pointerEvents:"none"}}>
+              <div style={{position:"absolute",left:-9999,right:-9999,height:1.5,background:"#EF4444",opacity:.5,top:"50%"}}/>
+              <div className="pulse" style={{width:9,height:9,borderRadius:"50%",background:"#EF4444",flexShrink:0,margin:"0 auto",position:"relative",zIndex:1}}/>
+            </div>
+          )}
+        </div>
+
+        {/* 오른쪽 실제 */}
+        <div style={{position:"relative",minHeight:HOURS.length*HOUR_H}}>
+          {HOURS.map(h=>(
+            <div key={h} onClick={()=>setTapHour({hour:h,type:"actual"})}
+              style={{height:HOUR_H,borderBottom:"1px dashed #E2E8F0",cursor:"pointer"}}/>
+          ))}
+          {renderBlocks(actualBlocks)}
+        </div>
+      </div>
+    </div>
+  );
+});
+
+const RoutineTab = memo(({ routines, todayStr, last30, setShowAddRoutine, setEditRoutine, onTap, onLongPress, onTouchStart, onTouchEnd }) => {
+  const getStreak=(logs={})=>{let s=0;const d=new Date();while(true){const k=d.toISOString().slice(0,10);if((logs[k]||0)>0){s++;d.setDate(d.getDate()-1);}else break;}return s;};
+
+  return (
+    <div style={{flex:1,overflowY:"auto",padding:"14px 16px 100px"}}>
+      {routines.length===0&&(
+        <div style={{textAlign:"center",padding:"60px 0"}}>
+          <div style={{fontSize:40,marginBottom:10}}>✨</div>
+          <div style={{fontSize:15,fontWeight:700,color:"#0F172A",marginBottom:4}}>루틴을 추가해보세요!</div>
+          <div style={{fontSize:13,color:"#94A3B8"}}>매일 반복하는 습관을 기록해요</div>
+        </div>
+      )}
+      {routines.map(r=>{
+        const logs=r.logs||{};
+        const prog=logs[todayStr]||0; // 0,1,2,3,4
+        const streak=getStreak(logs);
+        const totalDone=Object.values(logs).filter(v=>v>0).length;
+        return (
+          <div key={r.id} style={{background:"#fff",border:"1.5px solid "+(prog>0?"#3B82F6":"#E2E8F0"),borderRadius:18,padding:"16px",marginBottom:12,boxShadow:"0 2px 12px rgba(0,0,0,"+(prog>0?".08":".03")+")"}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14}}>
+              <div style={{width:44,height:44,borderRadius:14,background:prog>0?"#EFF6FF":"#F8FAFF",border:"2px solid "+(prog>0?"#3B82F6":"#E2E8F0"),display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>
+                {r.emoji}
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:15,fontWeight:700,color:"#0F172A"}}>{r.title}</div>
+                <div style={{display:"flex",gap:6,marginTop:3,alignItems:"center"}}>
+                  {streak>0&&<span style={{fontSize:11,fontWeight:700,color:"#F59E0B",background:"#FFFBEB",padding:"2px 7px",borderRadius:20}}>🔥 {streak}일 연속</span>}
+                  <span style={{fontSize:11,color:"#94A3B8"}}>{totalDone}일 완료</span>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                <button onClick={()=>setEditRoutine(r)} style={{background:"#F8FAFF",border:"1px solid #E2E8F0",borderRadius:8,padding:"5px 9px",fontSize:11,color:"#64748B",cursor:"pointer",fontWeight:600}}>편집</button>
+
+                {/* 진행도 버튼 4칸 */}
+                <div style={{display:"flex",gap:3}}>
+                  {[1,2,3,4].map(step=>(
+                    <div
+                      key={step}
+                      className="prog-dot"
+                      onClick={()=>onTap(r.id)}
+                      onContextMenu={e=>{e.preventDefault();onLongPress(r.id);}}
+                      onTouchStart={()=>onTouchStart(r.id)}
+                      onTouchEnd={onTouchEnd}
+                      onTouchMove={onTouchEnd}
+                      style={{
+                        width:14,height:14,borderRadius:4,
+                        background:prog>=step?PROGRESS_COLORS[step-1]:"#E2E8F0",
+                        cursor:"pointer",
+                      }}
+                    />
+                  ))}
+                </div>
+                {/* % 표시 */}
+                <span style={{fontSize:11,fontWeight:700,color:prog>0?"#3B82F6":"#CBD5E1",minWidth:30,textAlign:"right"}}>
+                  {prog===0?"–":prog*25+"%"}
+                </span>
+              </div>
+            </div>
+
+            {/* 30일 잔디 */}
+            <div style={{display:"grid",gridTemplateColumns:"repeat(10,1fr)",gap:3}}>
+              {last30.map(date=>{
+                const v=logs[date]||0;
+                const isT=date===todayStr;
+                const bg=v===0?(isT?"#EFF6FF":"#F1F5F9"):PROGRESS_COLORS[v-1];
+                return <div key={date} style={{aspectRatio:"1",borderRadius:4,background:bg,border:isT?"1.5px solid #3B82F6":"1.5px solid transparent",transition:"background .2s"}}/>;
+              })}
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",marginTop:4}}>
+              <span style={{fontSize:9,color:"#CBD5E1",fontFamily:"'DM Mono',monospace"}}>30일 전</span>
+              <span style={{fontSize:9,color:"#CBD5E1",fontFamily:"'DM Mono',monospace"}}>오늘</span>
+            </div>
+
+            {/* 진행도 안내 */}
+            <div style={{marginTop:10,display:"flex",alignItems:"center",gap:6}}>
+              <div style={{flex:1,height:6,background:"#F1F5F9",borderRadius:3,overflow:"hidden"}}>
+                <div style={{width:(prog/4*100)+"%",height:"100%",background:prog>0?PROGRESS_COLORS[prog-1]:"transparent",borderRadius:3,transition:"width .3s"}}/>
+              </div>
+              <span style={{fontSize:10,color:"#94A3B8"}}>탭: +25% / 길게: 초기화</span>
+            </div>
+          </div>
+        );
+      })}
+      <button onClick={()=>setShowAddRoutine(true)} style={{width:"100%",padding:"13px",background:"#fff",border:"1.5px dashed #93C5FD",borderRadius:14,fontSize:13,color:"#3B82F6",fontWeight:700,cursor:"pointer"}}>+ 루틴 추가</button>
+    </div>
+  );
+});
+
+// ══════════════════════════════════════════════════
+// MAIN APP
+// ══════════════════════════════════════════════════
+function App() {
+  const [tab, setTab]             = useState("home");
+  const [selectedDate, setSelectedDate] = useState(todayKey());
+  const [tasks, setTasks]         = useState([]);
+  const [blocks, setBlocks]       = useState([]);
+  const [routines, setRoutines]   = useState([]);
+  const [now, setNow]             = useState(new Date());
+
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [tapHour, setTapHour]     = useState(null);
+  const [newTaskInput, setNewTaskInput] = useState("");
+  const [editBlock, setEditBlock] = useState(null);
+  const [showAddRoutine, setShowAddRoutine] = useState(false);
+  const [newRoutineTitle, setNewRoutineTitle] = useState("");
+  const [newRoutineEmoji, setNewRoutineEmoji] = useState("🏃");
+  const [editRoutine, setEditRoutine] = useState(null);
+
+  const longPressTimer = useRef(null);
+  const longPressFired = useRef(false);
+
+  useEffect(()=>{
+    const savedDate=load("v2_date",null), savedTasks=load("v2_tasks",[]), today=todayKey();
+    if(savedDate!==today){ const r=savedTasks.map(t=>({...t,done:false})); setTasks(r); save("v2_tasks",r); save("v2_date",today); }
+    else setTasks(savedTasks);
+    setBlocks(load("v2_blocks",[]));
+    setRoutines(load("v2_routines",[]));
+  },[]);
+
+  useEffect(()=>{ const t=setInterval(()=>setNow(new Date()),30000); return()=>clearInterval(t); },[]);
+  useEffect(()=>{ save("v2_tasks",tasks); },[tasks]);
+  useEffect(()=>{ save("v2_blocks",blocks); },[blocks]);
+  useEffect(()=>{ save("v2_routines",routines); },[routines]);
+
+  const nowH=now.getHours()+now.getMinutes()/60;
+  const todayStr=todayKey();
+  const last30=getLast30Days();
+  const weekDays=getWeekDays(selectedDate);
+  const isToday=selectedDate===todayStr;
+  const selDateLabel=new Date(selectedDate).toLocaleDateString("ko-KR",{month:"long",day:"numeric",weekday:"short"});
+
+  // ── 할일 ──
+  const addTask=()=>{
+    if(!newTaskTitle.trim()) return;
+    setTasks(prev=>[...prev,{id:"t"+Date.now(),title:newTaskTitle.trim(),emoji:"",top3:false,done:false,colorIdx:prev.length%BLOCK_COLORS.length}]);
+    setNewTaskTitle("");
+  };
+  const toggleDone=id=>setTasks(prev=>prev.map(t=>t.id===id?{...t,done:!t.done}:t));
+  const toggleTop3=id=>{ const n=tasks.filter(t=>t.top3&&t.id!==id).length; setTasks(prev=>prev.map(t=>t.id===id?{...t,top3:n<3?!t.top3:false}:t)); };
+  const deleteTask=id=>{ setTasks(prev=>prev.filter(t=>t.id!==id)); setBlocks(prev=>prev.filter(b=>b.taskId!==id)); };
+
+  // ── 블록 ──
+  const addBlockFromTap=(taskId,title,startH,type)=>{
+    const task=tasks.find(t=>t.id===taskId);
+    setBlocks(prev=>[...prev,{id:"b"+Date.now(),taskId,title,date:selectedDate,startH,endH:startH+1,type,colorIdx:task?.colorIdx||0}]);
+    setTapHour(null); setNewTaskInput("");
+  };
+  const addNewBlockFromInput=(title,startH,type)=>{
+    if(!title.trim()) return;
+    const nt={id:"t"+Date.now(),title:title.trim(),emoji:"",top3:false,done:false,colorIdx:tasks.length%BLOCK_COLORS.length};
+    setTasks(prev=>[...prev,nt]);
+    setBlocks(prev=>[...prev,{id:"b"+Date.now(),taskId:nt.id,title:title.trim(),date:selectedDate,startH,endH:startH+1,type,colorIdx:nt.colorIdx}]);
+    setTapHour(null); setNewTaskInput("");
+  };
+  const updateBlock=(id,ch)=>setBlocks(prev=>prev.map(b=>b.id===id?{...b,...ch}:b));
+  const deleteBlock=id=>{ setBlocks(prev=>prev.filter(b=>b.id!==id)); setEditBlock(null); };
+
+  // ── 루틴 진행도 ──
+  const handleRoutineTap=(rid)=>{
+    if(longPressFired.current){ longPressFired.current=false; return; }
+    setRoutines(prev=>prev.map(r=>{
+      if(r.id!==rid) return r;
+      const logs={...(r.logs||{})};
+      const cur=logs[todayStr]||0;
+      logs[todayStr]=cur>=4?4:cur+1;
+      return {...r,logs};
+    }));
+  };
+  const handleRoutineLongPress=(rid)=>{
+    longPressFired.current=true;
+    setRoutines(prev=>prev.map(r=>{
+      if(r.id!==rid) return r;
+      const logs={...(r.logs||{})};
+      logs[todayStr]=0;
+      return {...r,logs};
+    }));
+  };
+  const handleRoutineTouchStart=(rid)=>{
+    longPressFired.current=false;
+    longPressTimer.current=setTimeout(()=>handleRoutineLongPress(rid),500);
+  };
+  const handleRoutineTouchEnd=()=>{ if(longPressTimer.current) clearTimeout(longPressTimer.current); };
+
+  const addRoutine=()=>{
+    if(!newRoutineTitle.trim()) return;
+    setRoutines(prev=>[...prev,{id:"r"+Date.now(),title:newRoutineTitle.trim(),emoji:newRoutineEmoji,logs:{}}]);
+    setNewRoutineTitle(""); setNewRoutineEmoji("🏃"); setShowAddRoutine(false);
+  };
+
+  const top3Tasks=tasks.filter(t=>t.top3);
+  const doneCount=tasks.filter(t=>t.done).length;
+  const planPlacedIds=blocks.filter(b=>b.date===selectedDate&&b.type==="plan").map(b=>b.taskId);
+  const actualPlacedIds=blocks.filter(b=>b.date===selectedDate&&b.type==="actual").map(b=>b.taskId);
+  const unplacedForPlan=tasks.filter(t=>!planPlacedIds.includes(t.id));
+  const unplacedForActual=tasks.filter(t=>!actualPlacedIds.includes(t.id));
+  const unplacedTasks=tapHour?.type==="plan" ? unplacedForPlan : unplacedForActual;
+
+  return (
+    <div style={{width:"100%",maxWidth:430,margin:"0 auto",height:"100svh",display:"flex",flexDirection:"column",background:"#F8FAFF",fontFamily:"'Noto Sans KR',sans-serif",position:"relative",overflow:"hidden"}}>
+      <style>{css}</style>
+      <div style={{height:"env(safe-area-inset-top,44px)",background:"#fff",flexShrink:0}}/>
+
+      <WeekHeader
+        weekDays={weekDays} selectedDate={selectedDate} setSelectedDate={setSelectedDate}
+        todayStr={todayStr} selDateLabel={selDateLabel} isToday={isToday}
+      />
+
+      {tab==="home"&&(
+        <HomeTab
+          tasks={tasks} newTaskTitle={newTaskTitle} setNewTaskTitle={setNewTaskTitle}
+          addTask={addTask} toggleDone={toggleDone} toggleTop3={toggleTop3} deleteTask={deleteTask}
+          doneCount={doneCount} top3Tasks={top3Tasks}
+        />
+      )}
+      {tab==="timeline"&&(
+        <TimelineTab
+          blocks={blocks} tasks={tasks} selectedDate={selectedDate}
+          isToday={isToday} nowH={nowH} setTapHour={setTapHour} setEditBlock={setEditBlock}
+        />
+      )}
+      {tab==="routine"&&(
+        <RoutineTab
+          routines={routines} todayStr={todayStr} last30={last30}
+          setShowAddRoutine={setShowAddRoutine} setEditRoutine={setEditRoutine}
+          onTap={handleRoutineTap}
+          onLongPress={handleRoutineLongPress}
+          onTouchStart={handleRoutineTouchStart}
+          onTouchEnd={handleRoutineTouchEnd}
+        />
+      )}
+
+      {/* 하단 탭바 */}
+      <div style={{flexShrink:0,background:"#fff",borderTop:"1px solid #E2E8F0",display:"flex",padding:"8px 0 calc(8px + env(safe-area-inset-bottom,0px))",zIndex:50}}>
+        {[["home","🏠","홈"],["timeline","⏱","타임라인"],["routine","✨","루틴"]].map(([key,icon,label])=>(
+          <button key={key} onClick={()=>setTab(key)} style={{flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,border:"none",background:"transparent",cursor:"pointer",padding:"4px 0"}}>
+            <span style={{fontSize:20,filter:tab===key?"none":"grayscale(1)",opacity:tab===key?1:.4,transition:"all .15s"}}>{icon}</span>
+            <span style={{fontSize:10,fontWeight:700,color:tab===key?"#3B82F6":"#94A3B8"}}>{label}</span>
+            {tab===key&&<div style={{width:20,height:3,background:"#3B82F6",borderRadius:2,marginTop:1}}/>}
+          </button>
+        ))}
+      </div>
+
+      {/* TAP HOUR MODAL */}
+      {tapHour&&(
+        <div onClick={()=>{setTapHour(null);setNewTaskInput("");}} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.3)",backdropFilter:"blur(4px)",zIndex:200,display:"flex",alignItems:"flex-end"}}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{width:"100%",background:"#fff",borderRadius:"22px 22px 0 0",padding:"16px 16px calc(16px + env(safe-area-inset-bottom,0px))",maxHeight:"70svh",display:"flex",flexDirection:"column",boxShadow:"0 -8px 40px rgba(0,0,0,.12)"}}>
+            <div style={{width:36,height:4,background:"#E2E8F0",borderRadius:2,margin:"0 auto 14px"}}/>
+            <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:12}}>
+              <span style={{fontSize:13,fontWeight:700,color:tapHour.type==="plan"?"#4338CA":"#065F46"}}>{tapHour.type==="plan"?"📅 계획":"🕐 실제"}</span>
+              <span style={{fontSize:13,color:"#64748B",fontFamily:"'DM Mono',monospace",fontWeight:600}}>{fmtH(tapHour.hour)}</span>
+            </div>
+            <div style={{background:"#F8FAFF",border:"1.5px solid #3B82F6",borderRadius:12,padding:"0 12px",display:"flex",alignItems:"center",gap:8,marginBottom:12,flexShrink:0}}>
+              <span style={{color:"#3B82F6",fontWeight:700}}>+</span>
+              <StableInput
+                autoFocus
+                value={newTaskInput}
+                onChange={setNewTaskInput}
+                onSubmit={()=>newTaskInput.trim()&&addNewBlockFromInput(newTaskInput,tapHour.hour,tapHour.type)}
+                placeholder="새 할일 직접 입력 후 Enter..."
+              />
+            </div>
+            <div style={{overflowY:"auto",flex:1}}>
+              {unplacedTasks.length===0
+                ?<div style={{textAlign:"center",color:"#CBD5E1",fontSize:13,padding:"16px"}}>배치할 수 있는 할일이 없어요</div>
+                :unplacedTasks.map(task=>{
+                  const c=BLOCK_COLORS[task.colorIdx||0];
+                  return (
+                    <div key={task.id} onClick={()=>addBlockFromTap(task.id,task.title,tapHour.hour,tapHour.type)}
+                      style={{display:"flex",alignItems:"center",gap:10,padding:"11px 10px",borderRadius:10,cursor:"pointer",marginBottom:4,background:"#F8FAFF",border:"1px solid #E2E8F0"}}>
+                      <div style={{width:10,height:10,borderRadius:"50%",background:c.accent,flexShrink:0}}/>
+                      <span style={{flex:1,fontSize:13,fontWeight:600,color:"#0F172A"}}>{task.title}</span>
+                      {task.top3&&<span style={{fontSize:12}}>⭐</span>}
+                    </div>
+                  );
+                })
+              }
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT BLOCK MODAL */}
+      {editBlock&&(
+        <div onClick={()=>setEditBlock(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.3)",backdropFilter:"blur(4px)",zIndex:200,display:"flex",alignItems:"flex-end"}}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{width:"100%",background:"#fff",borderRadius:"22px 22px 0 0",padding:"20px 16px calc(20px + env(safe-area-inset-bottom,0px))",boxShadow:"0 -8px 40px rgba(0,0,0,.12)"}}>
+            <div style={{width:36,height:4,background:"#E2E8F0",borderRadius:2,margin:"0 auto 16px"}}/>
+            <div style={{fontSize:15,fontWeight:800,color:"#0F172A",marginBottom:3}}>{editBlock.title}</div>
+            <div style={{fontSize:12,color:"#64748B",fontFamily:"'DM Mono',monospace",marginBottom:20}}>{editBlock.type==="plan"?"📅 계획":"🕐 실제"} · {fmtTime(editBlock.startH)}–{fmtTime(editBlock.endH)}</div>
+            <div style={{display:"flex",gap:10,marginBottom:16}}>
+              <div style={{flex:1}}>
+                <div style={{fontSize:11,color:"#64748B",marginBottom:4,fontWeight:600}}>시작</div>
+                <select value={editBlock.startH} onChange={e=>setEditBlock(b=>({...b,startH:Number(e.target.value)}))}
+                  style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:10,padding:"9px",fontSize:13,outline:"none",background:"#F8FAFF",color:"#0F172A"}}>
+                  {HOURS.map(h=><option key={h} value={h}>{fmtH(h)}</option>)}
+                </select>
+              </div>
+              <div style={{flex:1}}>
+                <div style={{fontSize:11,color:"#64748B",marginBottom:4,fontWeight:600}}>종료</div>
+                <select value={editBlock.endH} onChange={e=>setEditBlock(b=>({...b,endH:Number(e.target.value)}))}
+                  style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:10,padding:"9px",fontSize:13,outline:"none",background:"#F8FAFF",color:"#0F172A"}}>
+                  {HOURS.map(h=><option key={h} value={h}>{fmtH(h)}</option>)}
+                </select>
+              </div>
+            </div>
+            <button onClick={()=>{updateBlock(editBlock.id,{startH:editBlock.startH,endH:editBlock.endH});setEditBlock(null);}}
+              style={{width:"100%",padding:"14px",background:"#3B82F6",border:"none",borderRadius:14,fontSize:14,fontWeight:800,color:"#fff",cursor:"pointer",marginBottom:8,boxShadow:"0 4px 14px rgba(59,130,246,.35)"}}>저장</button>
+            <button onClick={()=>deleteBlock(editBlock.id)}
+              style={{width:"100%",padding:"14px",background:"#FEF2F2",border:"1.5px solid #FECACA",borderRadius:14,fontSize:14,fontWeight:700,color:"#EF4444",cursor:"pointer",marginBottom:8}}>삭제</button>
+            <button onClick={()=>setEditBlock(null)}
+              style={{width:"100%",padding:"13px",background:"#F8FAFF",border:"none",borderRadius:14,fontSize:13,color:"#94A3B8",cursor:"pointer"}}>취소</button>
+          </div>
+        </div>
+      )}
+
+      {/* ADD ROUTINE MODAL */}
+      {showAddRoutine&&(
+        <div onClick={()=>setShowAddRoutine(false)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.3)",backdropFilter:"blur(4px)",zIndex:200,display:"flex",alignItems:"flex-end"}}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{width:"100%",background:"#fff",borderRadius:"22px 22px 0 0",padding:"20px 16px calc(20px + env(safe-area-inset-bottom,0px))",maxHeight:"80svh",overflowY:"auto",boxShadow:"0 -8px 40px rgba(0,0,0,.12)"}}>
+            <div style={{width:36,height:4,background:"#E2E8F0",borderRadius:2,margin:"0 auto 16px"}}/>
+            <div style={{fontSize:15,fontWeight:800,color:"#0F172A",marginBottom:14}}>루틴 추가</div>
+            <input autoFocus value={newRoutineTitle} onChange={e=>setNewRoutineTitle(e.target.value)} onKeyDown={e=>e.key==="Enter"&&addRoutine()} placeholder="루틴 이름..."
+              style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:12,padding:"12px 14px",fontSize:14,outline:"none",background:"#F8FAFF",color:"#0F172A",marginBottom:14}}/>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:20}}>
+              {R_EMOJIS.map(em=>(
+                <button key={em} onClick={()=>setNewRoutineEmoji(em)}
+                  style={{width:42,height:42,borderRadius:12,border:"2px solid "+(newRoutineEmoji===em?"#3B82F6":"#E2E8F0"),background:newRoutineEmoji===em?"#EFF6FF":"#fff",fontSize:21,cursor:"pointer"}}>{em}</button>
+              ))}
+            </div>
+            <button onClick={addRoutine} disabled={!newRoutineTitle.trim()}
+              style={{width:"100%",padding:"14px",background:newRoutineTitle.trim()?"#3B82F6":"#E2E8F0",border:"none",borderRadius:14,fontSize:14,fontWeight:800,color:newRoutineTitle.trim()?"#fff":"#94A3B8",cursor:newRoutineTitle.trim()?"pointer":"default",marginBottom:8}}>추가</button>
+            <button onClick={()=>setShowAddRoutine(false)}
+              style={{width:"100%",padding:"13px",background:"#F8FAFF",border:"none",borderRadius:14,fontSize:13,color:"#94A3B8",cursor:"pointer"}}>취소</button>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT ROUTINE MODAL */}
+      {editRoutine&&(
+        <div onClick={()=>setEditRoutine(null)} style={{position:"fixed",inset:0,background:"rgba(15,23,42,.3)",backdropFilter:"blur(4px)",zIndex:200,display:"flex",alignItems:"flex-end"}}>
+          <div className="modal" onClick={e=>e.stopPropagation()} style={{width:"100%",background:"#fff",borderRadius:"22px 22px 0 0",padding:"20px 16px calc(20px + env(safe-area-inset-bottom,0px))",maxHeight:"80svh",overflowY:"auto",boxShadow:"0 -8px 40px rgba(0,0,0,.12)"}}>
+            <div style={{width:36,height:4,background:"#E2E8F0",borderRadius:2,margin:"0 auto 16px"}}/>
+            <div style={{fontSize:15,fontWeight:800,color:"#0F172A",marginBottom:14}}>루틴 편집</div>
+            <input value={editRoutine.title} onChange={e=>setEditRoutine(r=>({...r,title:e.target.value}))}
+              style={{width:"100%",border:"1.5px solid #E2E8F0",borderRadius:12,padding:"12px 14px",fontSize:14,outline:"none",background:"#F8FAFF",color:"#0F172A",marginBottom:14}}/>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:20}}>
+              {R_EMOJIS.map(em=>(
+                <button key={em} onClick={()=>setEditRoutine(r=>({...r,emoji:em}))}
+                  style={{width:42,height:42,borderRadius:12,border:"2px solid "+(editRoutine.emoji===em?"#3B82F6":"#E2E8F0"),background:editRoutine.emoji===em?"#EFF6FF":"#fff",fontSize:21,cursor:"pointer"}}>{em}</button>
+              ))}
+            </div>
+            <button onClick={()=>{setRoutines(prev=>prev.map(r=>r.id===editRoutine.id?editRoutine:r));setEditRoutine(null);}}
+              style={{width:"100%",padding:"14px",background:"#3B82F6",border:"none",borderRadius:14,fontSize:14,fontWeight:800,color:"#fff",cursor:"pointer",marginBottom:8}}>저장</button>
+            <button onClick={()=>{setRoutines(prev=>prev.filter(r=>r.id!==editRoutine.id));setEditRoutine(null);}}
+              style={{width:"100%",padding:"14px",background:"#FEF2F2",border:"1.5px solid #FECACA",borderRadius:14,fontSize:14,fontWeight:700,color:"#EF4444",cursor:"pointer",marginBottom:8}}>삭제</button>
+            <button onClick={()=>setEditRoutine(null)}
+              style={{width:"100%",padding:"13px",background:"#F8FAFF",border:"none",borderRadius:14,fontSize:13,color:"#94A3B8",cursor:"pointer"}}>취소</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const { useState, useEffect, useRef, memo } = React;
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+  </script>
   <script>
     if('serviceWorker' in navigator){
       window.addEventListener('load',()=>{
